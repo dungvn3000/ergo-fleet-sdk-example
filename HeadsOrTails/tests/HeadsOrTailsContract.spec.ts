@@ -112,11 +112,11 @@ describe("Heads Or Tails Contract", () => {
       partyPrice - RECOMMENDED_MIN_FEE_VALUE,
       someoneElse.address
     ).setAdditionalRegisters({
-      R4: SColl(SByte, utf8.decode(p1Choice)),
-      R5: SColl(SByte, p1ChoiceHash),
+      R4: SColl(SByte, new Uint8Array()),
+      R5: SColl(SByte, new Uint8Array()),
       R6: SSigmaProp(SGroupElement(player1.key.publicKey)),
-      R7: SLong(partyPrice),
-      R8: SInt(gameEnd),
+      R7: SLong(0n),
+      R8: SInt(0),
     });
 
     const transaction = new TransactionBuilder(mockChain.height)
