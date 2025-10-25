@@ -119,7 +119,7 @@ describe("Heads Or Tails Contract", () => {
       R8: SInt(0),
     });
 
-    const transaction = new TransactionBuilder(mockChain.height)
+    const transaction1 = new TransactionBuilder(mockChain.height)
       .from(createGameContractParty.utxos)
       .to(withdrawBox)
       .sendChangeTo(someoneElse.address)
@@ -127,7 +127,21 @@ describe("Heads Or Tails Contract", () => {
       .build();
 
     expect(() =>
-      mockChain.execute(transaction, { signers: [someoneElse] })
+      mockChain.execute(transaction1, { signers: [someoneElse] })
+    ).toThrowError();
+
+    //Try again after timeout
+    mockChain.newBlocks(10);
+
+    const transaction2 = new TransactionBuilder(mockChain.height)
+      .from(createGameContractParty.utxos)
+      .to(withdrawBox)
+      .sendChangeTo(someoneElse.address)
+      .payMinFee()
+      .build();
+
+    expect(() =>
+      mockChain.execute(transaction2, { signers: [someoneElse] })
     ).toThrowError();
   });
 
