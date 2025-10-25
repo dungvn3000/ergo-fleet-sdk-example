@@ -523,10 +523,10 @@ describe("Heads Or Tails Contract", () => {
 
     expect(mockChain.execute(transaction2, { signers: [player2] })).to.be.true;
 
-    //Time out
+    // Timeout
     mockChain.newBlocks(10);
 
-    //After time out player 2 can withdraw all the fund from the game contract..
+    // After timeout player 2 can withdraw all the fund from the game contract..
     const withdrawBox = new OutputBuilder(
       partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
       player2.address
