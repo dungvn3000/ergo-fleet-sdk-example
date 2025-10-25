@@ -364,7 +364,7 @@ describe("Heads Or Tails Contract", () => {
     ).toThrowError();
   });
 
-  it("Player 2 try to deposit a small amount of erg to game contract but fail", () => {
+  it("Player 2 try to deposit an amount of erg which not met the requirement will fail", () => {
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
