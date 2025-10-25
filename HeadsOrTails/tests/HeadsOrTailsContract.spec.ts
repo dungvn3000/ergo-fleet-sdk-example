@@ -15,10 +15,10 @@ import { blake2b256, utf8 } from "@fleet-sdk/crypto";
 import { SByte, SColl } from "@fleet-sdk/serializer";
 import { gameScript, createGameScript } from "../src/contract";
 import { generateRandomString } from "../src/utils";
-import { afterEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 describe("Heads Or Tails Contract", () => {
-  // set up the mock chain
+  // Setup the mock chain
   const mockChain = new MockChain({ height: 1_052_944 });
   const gameEnd = mockChain.height + 10;
 
@@ -28,7 +28,7 @@ describe("Heads Or Tails Contract", () => {
   // add parties
   const player1 = mockChain.newParty("Player1");
   const player2 = mockChain.newParty("Player2");
-  const player3 = mockChain.newParty("Player3");
+  const someoneElse = mockChain.newParty("SomeoneElse");
 
   const createGameContract = compile(createGameScript, {
     map: {
@@ -64,15 +64,20 @@ describe("Heads Or Tails Contract", () => {
   const p1Secret = generateRandomString(32);
   const p1ChoiceHash = blake2b256(utf8.decode(p1Secret + p1Choice));
 
-  afterEach(() => {
+  beforeEach(() => {
     mockChain.reset();
-  });
 
-  it("Player 1 create a new game", () => {
+    //Adding fund for player1 & player2
     player1.addBalance({
       nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
     });
 
+    player2.addBalance({
+      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
+    });
+  });
+
+  it("Player 1 create a new game", () => {
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
@@ -93,11 +98,7 @@ describe("Heads Or Tails Contract", () => {
     });
   });
 
-  it("Player 1 create a new game and player2 try to withdraw but fail", () => {
-    player1.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
+  it("Player 1 create a new game and someone else try to withdraw but fail", () => {
     createNewGame(
       mockChain,
       player1,
@@ -107,13 +108,11 @@ describe("Heads Or Tails Contract", () => {
       p1ChoiceHash
     );
 
-    const p2Choice = p1Choice;
-
     const withdrawBox = new OutputBuilder(
       partyPrice - RECOMMENDED_MIN_FEE_VALUE,
-      player2.address
+      someoneElse.address
     ).setAdditionalRegisters({
-      R4: SColl(SByte, utf8.decode(p2Choice)),
+      R4: SColl(SByte, utf8.decode(p1Choice)),
       R5: SColl(SByte, p1ChoiceHash),
       R6: SSigmaProp(SGroupElement(player1.key.publicKey)),
       R7: SLong(partyPrice),
@@ -123,24 +122,50 @@ describe("Heads Or Tails Contract", () => {
     const transaction = new TransactionBuilder(mockChain.height)
       .from(createGameContractParty.utxos)
       .to(withdrawBox)
-      .sendChangeTo(player2.address)
+      .sendChangeTo(someoneElse.address)
       .payMinFee()
       .build();
 
     expect(() =>
-      mockChain.execute(transaction, { signers: [player2] })
+      mockChain.execute(transaction, { signers: [someoneElse] })
     ).toThrowError();
   });
 
+  it("Player 1 create a new game and withdraw after timeout", () => {
+    createNewGame(
+      mockChain,
+      player1,
+      partyPrice,
+      createGameContract,
+      gameScriptHash,
+      p1ChoiceHash
+    );
+
+    //Timeout
+    mockChain.newBlocks(10);
+
+    const withdrawBox = new OutputBuilder(
+      partyPrice - RECOMMENDED_MIN_FEE_VALUE,
+      player1.address
+    ).setAdditionalRegisters({
+      R4: SColl(SByte, utf8.decode(p1Choice)),
+      R5: SColl(SByte, p1ChoiceHash),
+      R6: SSigmaProp(SGroupElement(player1.key.publicKey)),
+      R7: SLong(partyPrice),
+      R8: SInt(gameEnd),
+    });
+
+    const transaction = new TransactionBuilder(mockChain.height)
+      .from(createGameContractParty.utxos)
+      .to(withdrawBox)
+      .sendChangeTo(player1.address)
+      .payMinFee()
+      .build();
+
+    expect(mockChain.execute(transaction, { signers: [player1] })).to.be.true;
+  });
+
   it("Player 2 win the game and withdraw", () => {
-    player1.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
-    player2.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
@@ -151,9 +176,10 @@ describe("Heads Or Tails Contract", () => {
       p1ChoiceHash
     );
 
-    // Player 2 make depoist to game contract.
+    //Player 2 make his choice as same as player 1.
     const p2Choice = p1Choice;
 
+    // Player 2 make depoist to game contract.
     const player2DepositBox = new OutputBuilder(
       2n * partyPrice,
       gameScriptContract
@@ -187,6 +213,7 @@ describe("Heads Or Tails Contract", () => {
       tokens: [],
     });
 
+    //Withdraw winner price
     const withdrawBox = new OutputBuilder(
       partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
       player2.address
@@ -214,14 +241,6 @@ describe("Heads Or Tails Contract", () => {
   });
 
   it("Player 2 lost the game and can not withdraw", () => {
-    player1.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
-    player2.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
@@ -232,6 +251,7 @@ describe("Heads Or Tails Contract", () => {
       p1ChoiceHash
     );
 
+    // Make a wrong choice
     const p2Choice = p1Choice == HEAD ? TAIL : HEAD;
 
     const player2DepositBox = new OutputBuilder(
@@ -267,6 +287,7 @@ describe("Heads Or Tails Contract", () => {
       tokens: [],
     });
 
+    //Try to withdraw
     const withdrawBox = new OutputBuilder(
       partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
       player2.address
@@ -288,14 +309,6 @@ describe("Heads Or Tails Contract", () => {
   });
 
   it("Player 2 win the game but someone else try to withdraw", () => {
-    player1.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
-    player2.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
@@ -333,7 +346,7 @@ describe("Heads Or Tails Contract", () => {
 
     const withdrawBox = new OutputBuilder(
       partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
-      player3.address
+      someoneElse.address
     ).setAdditionalRegisters({
       R4: SColl(SByte, utf8.decode(p1Choice)),
       R5: SColl(SByte, utf8.decode(p1Secret)),
@@ -342,24 +355,16 @@ describe("Heads Or Tails Contract", () => {
     const transaction3 = new TransactionBuilder(mockChain.height)
       .from(gameScriptContractParty.utxos)
       .to(withdrawBox)
-      .sendChangeTo(player3.address)
+      .sendChangeTo(someoneElse.address)
       .payMinFee()
       .build();
 
     expect(() =>
-      mockChain.execute(transaction3, { signers: [player3] })
+      mockChain.execute(transaction3, { signers: [someoneElse] })
     ).toThrowError();
   });
 
   it("Player 2 try to deposit a small amount of erg to game contract but fail", () => {
-    player1.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
-    player2.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
@@ -398,15 +403,7 @@ describe("Heads Or Tails Contract", () => {
     ).toThrowError();
   });
 
-  it("Player 2 deposit and player 1 not giving his choice and secret the contract will time out and player 2 can withdraw his fund", () => {
-    player1.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
-    player2.addBalance({
-      nanoergs: partyPrice + RECOMMENDED_MIN_FEE_VALUE,
-    });
-
+  it("Player 2 deposit and player 1 not giving his choice and secret the contract will timeout and player 2 can withdraw his fund", () => {
     //Player 1 deposit to create game contract.
     createNewGame(
       mockChain,
@@ -446,12 +443,13 @@ describe("Heads Or Tails Contract", () => {
     //Time out
     mockChain.newBlocks(10);
 
+    //After time out player 2 can withdraw all the fund from the game contract..
     const withdrawBox = new OutputBuilder(
       partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
       player2.address
     ).setAdditionalRegisters({
-      R4: SColl(SByte, utf8.decode(p1Choice)),
-      R5: SColl(SByte, utf8.decode(p1Secret)),
+      R4: SColl(SByte, new Uint8Array()),
+      R5: SColl(SByte, new Uint8Array()),
     });
 
     const transaction3 = new TransactionBuilder(mockChain.height)
@@ -498,5 +496,6 @@ function createNewGame(
     .payMinFee()
     .build();
 
+  //Sign the contract
   expect(mockChain.execute(transaction1, { signers: [player1] })).to.be.true;
 }
