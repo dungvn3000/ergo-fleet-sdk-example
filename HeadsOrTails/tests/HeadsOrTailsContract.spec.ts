@@ -148,11 +148,11 @@ describe("Heads Or Tails Contract", () => {
       partyPrice - RECOMMENDED_MIN_FEE_VALUE,
       player1.address
     ).setAdditionalRegisters({
-      R4: SColl(SByte, utf8.decode(p1Choice)),
-      R5: SColl(SByte, p1ChoiceHash),
+      R4: SColl(SByte, new Uint8Array()),
+      R5: SColl(SByte, new Uint8Array()),
       R6: SSigmaProp(SGroupElement(player1.key.publicKey)),
-      R7: SLong(partyPrice),
-      R8: SInt(gameEnd),
+      R7: SLong(0n),
+      R8: SInt(0),
     });
 
     const transaction = new TransactionBuilder(mockChain.height)
@@ -191,7 +191,7 @@ describe("Heads Or Tails Contract", () => {
       R8: SInt(gameEnd),
     });
 
-    // Player 2 will take his own Box and CreateGameContract's Box as input 
+    // Player 2 will take his own Box and CreateGameContract's Box as input
     // and depoist it to the game contract.
     const input = player2.utxos.toArray();
     input.push(...createGameContractParty.utxos.toArray());
@@ -204,7 +204,7 @@ describe("Heads Or Tails Contract", () => {
       .build();
 
     expect(mockChain.execute(transaction2, { signers: [player2] })).to.be.true;
-    
+
     // Create game contract should empty after player 2 start the game
     expect(createGameContractParty.balance).to.be.deep.equal({
       nanoergs: 0n,
@@ -280,12 +280,13 @@ describe("Heads Or Tails Contract", () => {
       .build();
 
     expect(mockChain.execute(transaction2, { signers: [player2] })).to.be.true;
+
     expect(createGameContractParty.balance).to.be.deep.equal({
       nanoergs: 0n,
       tokens: [],
     });
-
     expect(createGameContractParty.utxos.isEmpty).to.be.true;
+
     expect(gameScriptContractParty.balance).to.be.deep.equal({
       nanoergs: 2n * partyPrice,
       tokens: [],
@@ -310,6 +311,70 @@ describe("Heads Or Tails Contract", () => {
     expect(() =>
       mockChain.execute(transaction3, { signers: [player2] })
     ).toThrowError();
+  });
+
+  it("Player 2 lost the game and player 1 withdraw the price", () => {
+    createNewGame(
+      mockChain,
+      player1,
+      partyPrice,
+      createGameContract,
+      gameScriptHash,
+      p1ChoiceHash
+    );
+
+    // Make a wrong choice
+    const p2Choice = p1Choice == HEAD ? TAIL : HEAD;
+
+    const player2DepositBox = new OutputBuilder(
+      2n * partyPrice,
+      gameScriptContract
+    ).setAdditionalRegisters({
+      R4: SColl(SByte, utf8.decode(p2Choice)),
+      R5: SColl(SByte, p1ChoiceHash),
+      R6: SSigmaProp(SGroupElement(player1.key.publicKey)),
+      R7: SLong(partyPrice),
+      R8: SInt(gameEnd),
+    });
+
+    const input = player2.utxos.toArray();
+    input.push(...createGameContractParty.utxos.toArray());
+
+    const transaction2 = new TransactionBuilder(mockChain.height)
+      .from(input)
+      .to(player2DepositBox)
+      .sendChangeTo(player2.address)
+      .payMinFee()
+      .build();
+
+    expect(mockChain.execute(transaction2, { signers: [player2] })).to.be.true;
+
+    const withdrawBox = new OutputBuilder(
+      partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
+      player1.address
+    ).setAdditionalRegisters({
+      R4: SColl(SByte, utf8.decode(p1Choice)),
+      R5: SColl(SByte, utf8.decode(p1Secret)),
+    });
+
+    const transaction3 = new TransactionBuilder(mockChain.height)
+      .from(gameScriptContractParty.utxos)
+      .to(withdrawBox)
+      .sendChangeTo(player1.address)
+      .payMinFee()
+      .build();
+
+    expect(mockChain.execute(transaction3, { signers: [player1] })).to.be.true;
+
+    expect(gameScriptContractParty.balance).to.be.deep.equal({
+      nanoergs: 0n,
+      tokens: [],
+    });
+
+    expect(player1.balance).to.be.deep.equal({
+      nanoergs: 2n * partyPrice - RECOMMENDED_MIN_FEE_VALUE,
+      tokens: [],
+    });
   });
 
   it("Player 2 win the game but someone else try to withdraw", () => {
