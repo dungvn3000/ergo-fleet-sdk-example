@@ -191,6 +191,8 @@ describe("Heads Or Tails Contract", () => {
       R8: SInt(gameEnd),
     });
 
+    // Player 2 will take his own Box and CreateGameContract's Box as input 
+    // and depoist it to the game contract.
     const input = player2.utxos.toArray();
     input.push(...createGameContractParty.utxos.toArray());
 
@@ -202,18 +204,20 @@ describe("Heads Or Tails Contract", () => {
       .build();
 
     expect(mockChain.execute(transaction2, { signers: [player2] })).to.be.true;
+    
+    // Create game contract should empty after player 2 start the game
     expect(createGameContractParty.balance).to.be.deep.equal({
       nanoergs: 0n,
       tokens: [],
     });
-
     expect(createGameContractParty.utxos.isEmpty).to.be.true;
+
     expect(gameScriptContractParty.balance).to.be.deep.equal({
       nanoergs: 2n * partyPrice,
       tokens: [],
     });
 
-    //Withdraw winner price
+    // Withdraw winner price
     const withdrawBox = new OutputBuilder(
       partyPrice * 2n - RECOMMENDED_MIN_FEE_VALUE,
       player2.address
